@@ -6,16 +6,21 @@ const config = {
   overPopThreshold: 3,    // DEFAULT 3 
   underPopThreshold: 2,   // DEFAULT 2 
   reproductionThreshold: 3, // DEFAULT 3
+  wrap: true 
 };
 
 let grid; 
 let pressed = false;
 let startButton;
 let intervalId;
-let wrap = 0;
 let hashInput;
 let startHash = '';
 let lastInputHash = '';
+let overPopInput, underPopInput, reproductionInput;
+
+function absMod(a,b) {
+  return ((a % b) + b) % b;
+}
 
 function setup() {
 	createCanvas(800, 800);
@@ -25,22 +30,72 @@ function setup() {
 	getGridHash();
 }
 
-
 function setupButtons() {
 	createButton('Clear').position(10, 30).mousePressed(setupGrid);
-  createButton('Step').position(130, 10).mousePressed(step);
-  createButton('Random').position(60, 30).mousePressed(randomizeGrid);
-  createButton('Set Hash').position(10, 50).mousePressed(setGridHash);
-  createButton('Reset Hash').position(265, 50).mousePressed(resetGridHash);
+	createButton('Step').position(130, 10).mousePressed(step);
+	createButton('Random').position(60, 30).mousePressed(randomizeGrid);
+	createButton('Set Hash').position(10, 50).mousePressed(setGridHash);
+	createButton('Reset Hash').position(265, 50).mousePressed(resetGridHash);
 
-  startButton = createButton('Start').position(10, 10).mousePressed(start);
-  hashInput = createInput('', 'hash').position(80, 50);
-  
-  let speedInput = createInput(config.stepMs.toString(), 'number').position(60, 10);
-  speedInput.input(() => {
-    let value = parseInt(speedInput.value());
-    if (value && value > 0) config.stepMs = value;
-  });
+	startButton = createButton('Start').position(10, 10).mousePressed(start);
+	hashInput = createInput('', 'hash').position(80, 50);
+
+	let speedInput = createInput(config.stepMs.toString(), 'number').position(60, 10);
+	speedInput.input(() => {
+		let value = speedInput.value();
+		if (value && value > 0) config.stepMs = value;
+	});
+
+	createDiv('Grid Size:').position(10, 92).style('font-size', '15px');
+	let gridWidthInput = createInput(config.gridWidth.toString(), 'number').position(72, 90);
+	gridWidthInput.input(() => {
+		let value = gridWidthInput.value();
+		if (value && value > 0) {
+			config.gridWidth = parseInt(value);
+			setupGrid();
+		}
+	});
+
+  let wrapCheckbox = createCheckbox('Wrap', config.wrap).position(10, 112);
+	wrapCheckbox.changed(() => {
+		config.wrap = wrapCheckbox.checked();
+    setupGrid();
+	});
+
+	let thresholdContainer = createDiv().position(10, 200);
+
+	createButton('Randomize Thresholds').parent(thresholdContainer).mousePressed(randomizeThresholds);
+
+	createDiv('Overpopulation:').parent(thresholdContainer).style('font-size', '15px');
+	overPopInput = createInput(config.overPopThreshold.toString(), 'number').parent(thresholdContainer);
+	overPopInput.input(() => {
+		let value = overPopInput.value();
+		config.overPopThreshold = parseInt(value);
+	});
+
+	createDiv('Underpopulation:').parent(thresholdContainer).style('font-size', '15px');
+	underPopInput = createInput(config.underPopThreshold.toString(), 'number').parent(thresholdContainer);
+	underPopInput.input(() => {
+		let value = underPopInput.value();
+		config.underPopThreshold = parseInt(value);
+	});
+
+	createDiv('Reproduction:').parent(thresholdContainer).style('font-size', '15px');
+	reproductionInput = createInput(config.reproductionThreshold.toString(), 'number').parent(thresholdContainer);
+	reproductionInput.input(() => {
+		let value = reproductionInput.value();
+		config.reproductionThreshold = parseInt(value);
+	});
+}
+
+function randomizeThresholds() {
+	config.overPopThreshold = floor(random(0, 10));
+	config.underPopThreshold = floor(random(0, 10));
+	config.reproductionThreshold = floor(random(0, 10));
+
+	overPopInput.value(config.overPopThreshold.toString());
+	underPopInput.value(config.underPopThreshold.toString());
+	reproductionInput.value(config.reproductionThreshold.toString());
 }
 
 class Cell {
@@ -67,10 +122,10 @@ class Cell {
 				if (config.fadeOld) {
 					// Hides all frozen structures
 					// fill(255, 20*this.persistence, 20*this.persistence);
-					fill(20*this.persistence, 30*this.persistence, 60*this.persistence);
+					//fill(20*this.persistence, 30*this.persistence, 60*this.persistence);
 
 					// Frozen structures different color, cool fade to persistence
-					// fill(30, 30*this.persistence, 60*this.persistence);
+					fill(30, 30*this.persistence, 60*this.persistence);
 				} else {
 					fill('black');
 				}
@@ -226,12 +281,9 @@ class Grid {
 	}
 	
 	setHash(new_hash) {
-		let total_cells = this.numCells*this.numCells;
 		let input_split = split(new_hash, '_');
 		let grid_size = input_split[0];
 		let grid_hash = input_split[1];
-		let grid_array = new Array(total_cells).fill(null);
-		let state;
 		let idx = 0;
 		
 		if (grid_size != this.numCells) {
@@ -245,7 +297,6 @@ class Grid {
 			let status = false;
 			let cell_split = split(hash_split[i].toString(), hash_split[i][0]);
 			let cell_count = cell_split[1];
-			let count = 0;
 			
 			if (hash_split[i][0] == 'a') {
 				status = true;
@@ -255,7 +306,7 @@ class Grid {
 				error.log('Broken hash!');
 				exit();
 			}
-			
+		  
 			for (let count = 0; count < cell_count; count++) {
 				let x = idx % this.numCells;
 				let y = floor(idx / this.numCells); 
@@ -346,19 +397,29 @@ function setupGrid() {
 	];
 
 	// assign neighbors
-	if (!wrap) {
-		for (let i = 0; i < config.gridWidth; i++) {
-			for (let j = 0; j < config.gridWidth; j++) {
-				let cell = grid.cells[i][j];
-				for (let k = 0; k < dirOffsets.length; k++) {
-					const off_i = i + dirOffsets[k][0];
-					const off_j = j + dirOffsets[k][1];
+	for (let i = 0; i < config.gridWidth; i++) {
+		for (let j = 0; j < config.gridWidth; j++) {
+			let cell = grid.cells[i][j];
+      if (!config.wrap) {
+			  for (let k = 0; k < dirOffsets.length; k++) {
+			  	const off_i = i + dirOffsets[k][0];
+			  	const off_j = j + dirOffsets[k][1];
 
-					if (off_i >= 0 && off_i < config.gridWidth && off_j >= 0 && off_j < config.gridWidth) {
-						cell.neighbors[k] = grid.cells[off_i][off_j];
-					}
-				}
-			}
+			  	if (off_i >= 0 && off_i < config.gridWidth && off_j >= 0 && off_j < config.gridWidth) {
+			  		cell.neighbors[k] = grid.cells[off_i][off_j];
+			  	}
+			  }
+      } else {
+        cell.neighbors = [];
+        cell.neighbors.push(grid.cells[i][absMod(j-1,config.gridWidth)]);
+        cell.neighbors.push(grid.cells[i][(j+1)%config.gridWidth]);
+        cell.neighbors.push(grid.cells[absMod(i-1,config.gridWidth)][j]);
+        cell.neighbors.push(grid.cells[(i+1)%config.gridWidth][j]);
+        cell.neighbors.push(grid.cells[absMod(i-1,config.gridWidth)][absMod(j-1,config.gridWidth)]);
+        cell.neighbors.push(grid.cells[(i+1)%config.gridWidth][absMod(j-1,config.gridWidth)]);
+        cell.neighbors.push(grid.cells[absMod(i-1,config.gridWidth)][(j+1)%config.gridWidth]);
+        cell.neighbors.push(grid.cells[(i+1)%config.gridWidth][(j+1)%config.gridWidth]);
+      }
 		}
 	}
 	grid.hash = grid.getRLEHash();
@@ -366,7 +427,7 @@ function setupGrid() {
 
 function keyPressed() {
 	if (key == ' ') start();
-	if (keyCode == 38) step();
+	if (keyCode == 39) step();
 	if (key == 'r') randomizeGrid();
 	if (key == 'e') setupGrid();
 }
